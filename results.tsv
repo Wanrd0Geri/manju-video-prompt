@@ -1,0 +1,4 @@
+timestamp	commit	skill	old_score	new_score	status	dimension	note	eval_mode
+2026-08-21T00:00	baseline	manju-video-prompt	-	69.3	baseline	-	runtime_warn=0; extension negative transfer; 160 tests pass	full_test
+2026-08-21T14:13:07+0800	working-tree	manju-video-prompt	69.3	92.0	accept	all	historical snapshot: extension route; full-sequence per-shot contract; no generation negative transfer; 207 tests pass in 0.80s; context -9.9%	full_test
+2026-08-21T18:45:09+0800	working-tree-v3	manju-video-prompt	65.5	99.4	accept	all	text-validated: blind min 167/168 vs 110/168; 9 canonical cases; 25/25 mutations; 3/3 validity controls; 221 mechanical checks; not video-validated	text_release

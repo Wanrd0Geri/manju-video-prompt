@@ -61,6 +61,56 @@ AUDIO_MULTI = MULTI.replace(
     "图片3：合拢油纸伞的外形、竹骨与木柄。音频1只参考沈清霜的音色与克制的说话气质。",
 )
 
+GENERATION_PLOT_ONLY = """情节：
+镜头1（0.0–1.0秒）：石桥空镜，固定机位，雨滴落在桥面后停住。
+
+不添加字幕，不添加背景音乐。"""
+
+GENERATION_SOUND = """声音：
+音频1只参考沈清霜的音色与克制的说话气质。
+
+情节：
+镜头1（0.0–1.0秒）：沈清霜画外轻声说道：“停下。”随后恢复安静。
+
+不添加字幕，不添加背景音乐。"""
+
+EXTENSION_MINIMAL = """视频延长：
+向后延长视频1；该视频讲述两人在雨夜石桥对峙。新增片段直接承接视频结尾两人保持静止的状态继续。
+
+情节：
+新增镜头1（0.0–1.5秒）：固定机位，沈清霜先抬眼看向桥外，镜头结束时保持沉默。
+硬切至新增镜头2。
+新增镜头2（1.5–3.0秒）：墨尘停在原位，右手松开伞柄，最终垂手站定。"""
+
+EXTENSION_FULL = """视频延长：
+向后延长视频1；该视频讲述沈清霜与墨尘在雨夜石桥相遇。新增片段直接承接视频结尾两人隔着三步对视、细雨持续的状态继续。
+
+主体：
+图片1：沈清霜与墨尘的身份、外貌、发型和服装。
+
+场景：
+图片2：雨夜石桥的建筑布局、湿润石面和栏杆位置。
+
+风格：
+延续冷灰色写实国漫动画质感。
+
+声音：
+音频1只参考沈清霜的音色与克制的说话气质。
+
+情节：
+新增镜头1（0.0–2.0秒）：中景平视，沈清霜位于左侧、墨尘位于右侧；她缓慢抬眼看向桥外。
+硬切至新增镜头2。
+新增镜头2（2.0–4.0秒）：切到墨尘中近景；他松开伞柄，右手垂下。"""
+
+
+EXTENSION_CAMERA_CLOSURE = EXTENSION_FULL.replace(
+    "新增镜头1（0.0–2.0秒）：中景平视，沈清霜位于左侧、墨尘位于右侧；她缓慢抬眼看向桥外。",
+    "新增镜头1（0.0–2.0秒）：中景平视，摄影机位于桥侧，看见左侧的沈清霜和右侧的墨尘；冷灰雨光映在两人之间的湿桥面，沈清霜是画面内最清晰的主体，她缓慢抬眼看向桥外。",
+).replace(
+    "新增镜头2（2.0–4.0秒）：切到墨尘中近景；他松开伞柄，右手垂下。",
+    "新增镜头2（2.0–4.0秒）：切到墨尘侧面中近景，冷灰雨光映出他的右手与伞柄，两者保持清晰；他仍停在原位，缓慢松开伞柄，右手自然垂下。",
+)
+
 
 def fenced(prompt: str) -> str:
     return f"```text\n{prompt}\n```"
@@ -170,6 +220,38 @@ def main() -> int:
             single_contract,
         ],
     }
+    extension_contract = {
+        "task_kind": "extension",
+        "delivery_mode": "full_sequence",
+        "expected_blocks": 1,
+        "expected_headings": [
+            "视频延长",
+            "主体",
+            "场景",
+            "风格",
+            "声音",
+            "情节",
+        ],
+        "expected_duration": "4.0",
+        "expected_assets": ["视频1", "图片1", "图片2", "音频1"],
+        "expected_asset_sections": {
+            "视频1": "视频延长",
+            "图片1": "主体",
+            "图片2": "场景",
+            "音频1": "声音",
+        },
+        "expected_shot_count": 2,
+        "tail_policy": "inherit_source",
+    }
+    full_sequence_generation_contract = {
+        "task_kind": "generation",
+        "delivery_mode": "full_sequence",
+        "expected_blocks": 1,
+        "expected_headings": ["情节"],
+        "expected_duration": "1.0",
+        "expected_shot_count": 1,
+        "tail_policy": "generation_default",
+    }
 
     add(
         "valid_multi_legacy_contract",
@@ -181,6 +263,80 @@ def main() -> int:
     )
     add("valid_single", validate_prompt(SINGLE).ok)
     add("valid_environment_without_subject", validate_prompt(ENVIRONMENT).ok)
+    add(
+        "valid_generation_with_only_required_plot_heading",
+        validate_prompt(GENERATION_PLOT_ONLY).ok,
+    )
+    add(
+        "mechanical_validator_does_not_keyword_check_cinematography",
+        validate_prompt(GENERATION_PLOT_ONLY).ok,
+    )
+    add(
+        "valid_generation_sound_heading_with_audio_asset",
+        validate_prompt(GENERATION_SOUND).ok,
+    )
+    add(
+        "valid_generation_sound_asset_contract",
+        validate_prompt(
+            GENERATION_SOUND,
+            contract={
+                "task_kind": "generation",
+                "expected_headings": ["声音", "情节"],
+                "expected_assets": ["音频1"],
+                "expected_asset_sections": {"音频1": "声音"},
+                "expected_shot_count": 1,
+            },
+        ).ok,
+    )
+    add(
+        "valid_extension_inferred_without_contract",
+        validate_prompt(EXTENSION_MINIMAL).ok,
+    )
+    add(
+        "valid_extension_full_prompt_contract",
+        validate_prompt(EXTENSION_FULL, contract=extension_contract).ok,
+    )
+    add(
+        "extension_fixture_avoids_empty_value_sentences",
+        all(
+            term not in EXTENSION_CAMERA_CLOSURE
+            for term in ("前景无主体", "无运镜", "无明显虚焦", "本镜无对白")
+        ) and validate_prompt(EXTENSION_CAMERA_CLOSURE, contract=extension_contract).ok,
+    )
+    add(
+        "extension_fixture_retains_camera_closure_examples",
+        all(
+            term in EXTENSION_CAMERA_CLOSURE
+            for term in ("中景平视", "摄影机位于", "冷灰雨光", "最清晰", "保持清晰")
+        ),
+    )
+    add(
+        "valid_extension_full_sequence_response",
+        validate_response(
+            fenced(EXTENSION_FULL), contract=extension_contract
+        ).ok,
+    )
+    add(
+        "valid_generation_full_sequence_contract_without_subject_required",
+        validate_response(
+            fenced(GENERATION_PLOT_ONLY),
+            contract=full_sequence_generation_contract,
+        ).ok,
+    )
+    extension_custom_tail = EXTENSION_MINIMAL + "\n\n保持源视频已有字幕。"
+    add(
+        "valid_extension_expected_tail_override",
+        validate_prompt(
+            extension_custom_tail,
+            contract={
+                "task_kind": "extension",
+                "expected_headings": ["视频延长", "情节"],
+                "expected_shot_count": 2,
+                "tail_policy": "inherit_source",
+                "expected_tail": "保持源视频已有字幕。",
+            },
+        ).ok,
+    )
     environment_contract = {
         "subject_required": False,
         "expected_duration": "2.0",
@@ -206,8 +362,9 @@ def main() -> int:
         validate_response(fenced(MULTI), contract=legacy_contract).ok,
     )
     add(
-        "valid_batch_without_contract",
+        "multiple_blocks_without_contract_rejected",
         validate_response(batch_response(MULTI, SINGLE)).ok,
+        False,
     )
     add(
         "valid_batch_per_segment_contract",
@@ -377,11 +534,6 @@ def main() -> int:
             None,
         ),
         (
-            "missing_scene_heading",
-            MULTI.replace("场景：\n", "", 1),
-            None,
-        ),
-        (
             "duplicate_heading",
             MULTI.replace("风格：\n", "场景：\n重复场景。\n\n风格：\n", 1),
             None,
@@ -458,6 +610,245 @@ def main() -> int:
 
     for name, prompt, contract in mutations:
         add(name, validate_prompt(prompt, contract=contract).ok, False)
+
+    for internal_term in (
+        "operation",
+        "task_kind",
+        "sequence_scope",
+        "AssetMap",
+        "SeamState",
+        "VisibilityState",
+        "world_roster",
+        "full_frame",
+        "partial_frame",
+        "offscreen",
+        "source_cut_id",
+        "EvidenceGraph",
+        "SequencePlan",
+        "PromptEmitter",
+        "WorldState",
+        "ShotPlan",
+        "unique_derived",
+        "unresolved",
+    ):
+        add_error(
+            f"internal_tracker_{internal_term}_rejected",
+            validate_prompt(
+                GENERATION_PLOT_ONLY.replace(
+                    "石桥空镜",
+                    f"{internal_term}：石桥空镜",
+                    1,
+                )
+            ),
+            "不得输出内部追踪词",
+        )
+
+    add_error(
+        "invalid_task_kind_rejected",
+        validate_prompt(
+            GENERATION_PLOT_ONLY,
+            contract={"task_kind": "editing", "expected_shot_count": 1},
+        ),
+        "task_kind 必须是 generation 或 extension",
+    )
+    add_error(
+        "boolean_task_kind_rejected",
+        validate_prompt(
+            GENERATION_PLOT_ONLY,
+            contract={"task_kind": True, "expected_shot_count": 1},
+        ),
+        "task_kind 必须是 generation 或 extension",
+    )
+    add_error(
+        "generation_rejects_extension_heading_when_explicit",
+        validate_prompt(
+            EXTENSION_MINIMAL,
+            contract={"task_kind": "generation", "expected_shot_count": 2},
+        ),
+        "task_kind=generation 不允许栏目：视频延长",
+    )
+    add_error(
+        "extension_requires_video_extension_heading",
+        validate_prompt(
+            "情节：" + EXTENSION_MINIMAL.split("\n\n情节：", 1)[1],
+            contract={"task_kind": "extension", "expected_shot_count": 2},
+        ),
+        "缺少必需标题：视频延长",
+    )
+    add_error(
+        "extension_requires_source_video_binding",
+        validate_prompt(
+            EXTENSION_MINIMAL.replace("视频1", "源视频", 1),
+            contract={"task_kind": "extension", "expected_shot_count": 2},
+        ),
+        "视频延长栏目必须绑定源视频素材",
+    )
+    add_error(
+        "generation_rejects_new_shot_prefix",
+        validate_prompt(
+            GENERATION_PLOT_ONLY.replace("镜头1", "新增镜头1", 1),
+            contract={"task_kind": "generation", "expected_shot_count": 1},
+        ),
+        "与 task_kind=generation 不符；应使用 镜头N",
+    )
+    add_error(
+        "extension_rejects_generation_shot_prefix",
+        validate_prompt(
+            EXTENSION_MINIMAL.replace("新增镜头", "镜头"),
+            contract={"task_kind": "extension", "expected_shot_count": 2},
+        ),
+        "与 task_kind=extension 不符；应使用 新增镜头N",
+    )
+    add_error(
+        "malformed_extension_shot_header_rejected",
+        validate_prompt(
+            EXTENSION_MINIMAL.replace("新增镜头1", "新增镜头X", 1)
+        ),
+        "无法解析的镜头头",
+    )
+    add(
+        "natural_body_starting_with_new_shot_first_time_is_not_header",
+        validate_prompt(
+            EXTENSION_MINIMAL.replace(
+                "新增镜头1（0.0–1.5秒）：固定机位",
+                "新增镜头1（0.0–1.5秒）：\n新增镜头一开始保持固定机位",
+                1,
+            )
+        ).ok,
+    )
+    extension_transition_only = EXTENSION_MINIMAL.replace(
+        "新增镜头1（0.0–1.5秒）：固定机位，沈清霜先抬眼看向桥外，镜头结束时保持沉默。\n硬切至新增镜头2。",
+        "新增镜头1（0.0–1.5秒）：\n硬切至新增镜头2。",
+        1,
+    )
+    add_error(
+        "extension_transition_only_shot_body_rejected",
+        validate_prompt(extension_transition_only),
+        "新增镜头1正文为空",
+    )
+    add_error(
+        "extension_non_contiguous_number_rejected",
+        validate_prompt(
+            EXTENSION_MINIMAL.replace("新增镜头2", "新增镜头3")
+        ),
+        "镜头编号不连续",
+    )
+
+    add_error(
+        "sound_heading_requires_audio_asset",
+        validate_prompt(
+            GENERATION_SOUND.replace(
+                "音频1只参考沈清霜的音色与克制的说话气质。",
+                "保持克制、低沉的声音。",
+                1,
+            )
+        ),
+        "声音栏目必须绑定至少一个音频素材",
+    )
+    add_error(
+        "sound_heading_rejects_image_asset",
+        validate_prompt(
+            GENERATION_SOUND.replace(
+                "音频1只参考沈清霜的音色与克制的说话气质。",
+                "图片1：参考沈清霜的说话气质。",
+                1,
+            )
+        ),
+        "声音栏目只允许绑定音频素材",
+    )
+    add_error(
+        "expected_headings_exact_mismatch_rejected",
+        validate_prompt(
+            EXTENSION_FULL,
+            contract={
+                "task_kind": "extension",
+                "expected_headings": ["视频延长", "主体", "情节"],
+            },
+        ),
+        "栏目不符",
+    )
+    add_error(
+        "expected_headings_duplicate_rejected",
+        validate_prompt(
+            GENERATION_PLOT_ONLY,
+            contract={
+                "task_kind": "generation",
+                "expected_headings": ["情节", "情节"],
+            },
+        ),
+        "expected_headings 不得包含重复栏目",
+    )
+    add_error(
+        "expected_headings_wrong_shape_rejected",
+        validate_prompt(
+            GENERATION_PLOT_ONLY,
+            contract={
+                "task_kind": "generation",
+                "expected_headings": "情节",
+            },
+        ),
+        "expected_headings 必须是字符串数组",
+    )
+    add_error(
+        "expected_headings_route_mismatch_rejected",
+        validate_prompt(
+            GENERATION_PLOT_ONLY,
+            contract={
+                "task_kind": "generation",
+                "expected_headings": ["视频延长", "情节"],
+            },
+        ),
+        "expected_headings 含有 task_kind=generation 不允许的栏目",
+    )
+
+    generation_without_tail = GENERATION_PLOT_ONLY.replace(
+        "\n不添加字幕，不添加背景音乐。", ""
+    )
+    add(
+        "explicit_inherit_tail_policy_can_release_generation_default",
+        validate_prompt(
+            generation_without_tail,
+            contract={"task_kind": "generation", "tail_policy": "inherit_source"},
+        ).ok,
+    )
+    add_error(
+        "extension_generation_default_tail_policy_requires_fixed_tail",
+        validate_prompt(
+            EXTENSION_MINIMAL,
+            contract={
+                "task_kind": "extension",
+                "tail_policy": "generation_default",
+            },
+        ),
+        "提示词必须以“不添加字幕，不添加背景音乐。”收尾",
+    )
+    add_error(
+        "invalid_tail_policy_rejected",
+        validate_prompt(
+            EXTENSION_MINIMAL,
+            contract={"task_kind": "extension", "tail_policy": "custom"},
+        ),
+        "tail_policy 必须是 generation_default 或 inherit_source",
+    )
+    add_error(
+        "empty_expected_tail_rejected",
+        validate_prompt(
+            EXTENSION_MINIMAL,
+            contract={"task_kind": "extension", "expected_tail": ""},
+        ),
+        "expected_tail 必须是非空字符串",
+    )
+    add_error(
+        "expected_tail_mismatch_rejected",
+        validate_prompt(
+            EXTENSION_MINIMAL,
+            contract={
+                "task_kind": "extension",
+                "expected_tail": "保持源视频已有字幕。",
+            },
+        ),
+        "提示词必须以合同指定收尾",
+    )
 
     speaker_decoy = MULTI.replace(
         "沈清霜侧脸近景，她没有回头；沈清霜轻声说道",
@@ -1060,6 +1451,84 @@ def main() -> int:
     )
     add("missing_codeblock", validate_response(MULTI).ok, False)
 
+    add_error(
+        "full_sequence_rejects_multiple_code_blocks",
+        validate_response(
+            batch_response(EXTENSION_FULL, EXTENSION_FULL),
+            contract=extension_contract,
+        ),
+        "代码块数量不符：期望 1，实际 2",
+    )
+    add_error(
+        "full_sequence_requires_expected_blocks",
+        validate_response(
+            fenced(GENERATION_PLOT_ONLY),
+            contract={
+                "task_kind": "generation",
+                "delivery_mode": "full_sequence",
+                "expected_shot_count": 1,
+            },
+        ),
+        "delivery_mode=full_sequence 必须包含 expected_blocks=1",
+    )
+    add_error(
+        "full_sequence_requires_expected_shot_count",
+        validate_response(
+            fenced(GENERATION_PLOT_ONLY),
+            contract={
+                "task_kind": "generation",
+                "delivery_mode": "full_sequence",
+                "expected_blocks": 1,
+            },
+        ),
+        "delivery_mode=full_sequence 必须包含 expected_shot_count",
+    )
+    add_error(
+        "flat_expected_blocks_cannot_request_multiple_blocks",
+        validate_response(
+            batch_response(MULTI, SINGLE),
+            contract={
+                "task_kind": "generation",
+                "expected_blocks": 2,
+                "expected_shot_count": 3,
+            },
+        ),
+        "非批量合同 expected_blocks 必须为1",
+    )
+    add_error(
+        "flat_expected_blocks_float_rejected",
+        validate_response(
+            fenced(GENERATION_PLOT_ONLY),
+            contract={
+                "task_kind": "generation",
+                "expected_blocks": 1.0,
+                "expected_shot_count": 1,
+            },
+        ),
+        "expected_blocks 必须是整数",
+    )
+    add_error(
+        "invalid_delivery_mode_rejected",
+        validate_response(
+            fenced(GENERATION_PLOT_ONLY),
+            contract={
+                "task_kind": "generation",
+                "delivery_mode": "per_shot",
+                "expected_blocks": 1,
+                "expected_shot_count": 1,
+            },
+        ),
+        "delivery_mode 只支持 full_sequence",
+    )
+    add_error(
+        "full_sequence_rejects_legacy_batch_segments",
+        validate_response(
+            batch_response(MULTI, SINGLE),
+            contract={**batch_contract, "delivery_mode": "full_sequence"},
+        ),
+        "delivery_mode=full_sequence 不能与旧批量 segments 同时使用",
+    )
+
     add(
         "batch_block_count_mismatch",
         validate_response(
@@ -1286,6 +1755,59 @@ def main() -> int:
             "cli_missing_contract_file_controlled",
             missing_contract,
             "无法读取合同文件",
+        )
+
+    from run_release_checks import validate_manifest
+
+    manifest_path = Path(__file__).resolve().parents[1] / "evals" / "manifest.json"
+    add("release_manifest_current_schema_valid", validate_manifest(manifest_path).ok)
+    with tempfile.TemporaryDirectory(prefix="manju-release-schema-tests-") as temp_dir:
+        temp_path = Path(temp_dir)
+
+        duplicate_key_path = temp_path / "duplicate-key.json"
+        duplicate_key_path.write_text(
+            '{"schema_version":"1.1","schema_version":"1.1"}',
+            encoding="utf-8",
+        )
+        duplicate_result = validate_manifest(duplicate_key_path)
+        add(
+            "release_manifest_duplicate_key_rejected",
+            not duplicate_result.ok
+            and any("重复键" in error for error in duplicate_result.errors),
+        )
+
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_payload["mutations"][0]["expected_dimensions"] = [{"bad": True}]
+        malformed_dimension_path = temp_path / "malformed-dimension.json"
+        malformed_dimension_path.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        malformed_result = validate_manifest(malformed_dimension_path)
+        add(
+            "release_manifest_nonstring_dimension_controlled",
+            not malformed_result.ok
+            and any(
+                "expected_dimensions[0] 必须是非空字符串" in error
+                for error in malformed_result.errors
+            ),
+        )
+
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_payload.pop("validity_controls")
+        missing_controls_path = temp_path / "missing-controls.json"
+        missing_controls_path.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        missing_controls_result = validate_manifest(missing_controls_path)
+        add(
+            "release_manifest_validity_controls_required",
+            not missing_controls_result.ok
+            and any(
+                "validity_controls" in error
+                for error in missing_controls_result.errors
+            ),
         )
 
     failures = [

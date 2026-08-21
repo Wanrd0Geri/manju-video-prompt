@@ -1,4 +1,4 @@
 interface:
   display_name: "Manju Video Prompt"
-  short_description: "把分镜与角色场景资产编译为可直接生成的多镜头视频提示词"
-  default_prompt: "Use $manju-video-prompt to turn this finished storyboard and its character and scene references, plus any supplied prop or voice references, into copy-ready video prompts."
+  short_description: "把分镜、资产或源视频编译为完整多镜头与视频延长提示词"
+  default_prompt: "Use $manju-video-prompt to compile this finished storyboard, supplied references, or approved video-extension shots into one complete copy-ready video prompt."

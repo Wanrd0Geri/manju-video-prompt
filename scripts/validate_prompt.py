@@ -17,21 +17,45 @@ from pathlib import Path
 from typing import Any
 
 
-HEADING_RE = re.compile(r"(?m)^(主体|场景|风格|情节)：[ \t]*$")
+TASK_KINDS = {"generation", "extension"}
+HEADING_ORDER = {
+    "generation": ("主体", "场景", "风格", "声音", "情节"),
+    "extension": ("视频延长", "主体", "场景", "风格", "声音", "情节"),
+}
+REQUIRED_HEADINGS = {
+    "generation": {"情节"},
+    "extension": {"视频延长", "情节"},
+}
+ALL_HEADINGS = tuple(
+    dict.fromkeys(name for order in HEADING_ORDER.values() for name in order)
+)
+HEADING_RE = re.compile(
+    rf"(?m)^({'|'.join(map(re.escape, ALL_HEADINGS))})：[ \t]*$"
+)
+EXTENSION_HEADING_RE = re.compile(r"(?m)^视频延长：[ \t]*$")
 STANDALONE_HEADING_RE = re.compile(
     r"(?m)^[ \t]*([^\s：:\r\n][^：:\r\n]{0,30})[：:][ \t]*$"
 )
 ASSET_STANDALONE_RE = re.compile(r"(?:图片|音频|视频)\d+：")
 FIXED_TAIL = "不添加字幕，不添加背景音乐。"
+TAIL_POLICIES = {"generation_default", "inherit_source"}
+NEW_CONTRACT_KEYS = {
+    "task_kind",
+    "delivery_mode",
+    "expected_headings",
+    "tail_policy",
+    "expected_tail",
+}
 SHOT_RE = re.compile(
-    r"(?m)^[ \t]*镜头\s*(\d+)\s*（\s*(\d+(?:\.\d+)?)\s*"
-    r"[\-–—]\s*(\d+(?:\.\d+)?)\s*秒\s*）\s*[：:]"
+    r"(?m)^[ \t]*(?P<prefix>新增)?镜头\s*(?P<number>\d+)\s*"
+    r"（\s*(?P<start>\d+(?:\.\d+)?)\s*[\-–—]\s*"
+    r"(?P<end>\d+(?:\.\d+)?)\s*秒\s*）\s*[：:]"
 )
 SHOT_HEADER_CANDIDATE_RE = re.compile(
     r"""
     ^[ \t]*
     (?:
-        镜头[ \t]*
+        (?:新增)?镜头[ \t]*
         (?:
             (?:
                 (?:[#＃_＿·•\-－][ \t]*|第[ \t]*)?\d+
@@ -108,9 +132,13 @@ BANNED_PATTERNS = (
     ),
     (
         re.compile(
-            r"(?i)(?<![A-Za-z0-9_])(?:storyboard_status|duration_source|"
-            r"compiled_segment_id|source_cut_ids|source_cut_count|version_state|"
-            r"source_cut_scope|SegmentMap|SceneState|ShotRecord|NarrativeMap)"
+            r"(?i)(?<![A-Za-z0-9_])(?:operation|task_kind|sequence_scope|delivery_mode|"
+            r"storyboard_status|duration_source|compiled_segment_id|source_cut_id|"
+            r"source_cut_ids|source_cut_count|version_state|source_cut_scope|"
+            r"world_roster|full_frame|partial_frame|offscreen|AssetMap|SeamState|"
+            r"VisibilityState|SegmentMap|SceneState|ShotRecord|NarrativeMap|"
+            r"EvidenceGraph|SequencePlan|PromptEmitter|WorldState|ShotPlan|"
+            r"incoming_state|state_delta|outgoing_state|unique_derived|unresolved)"
             r"(?![A-Za-z0-9_])"
         ),
         "不得输出内部追踪词",
@@ -127,12 +155,12 @@ VOICE_PREDICATE_RE = (
 )
 TRANSITION_ONLY_RE = re.compile(
     r"^(?:(?:随后|然后|接着|随即|紧接着|直接)[，,]?[ \t]*)?(?:"
-    r"硬切(?:(?:至|到)(?:镜头\d+|下一镜)|转场)?|"
-    r"反打(?:镜头|切|(?:切)?(?:至|到)(?:镜头\d+|下一镜))?|"
-    r"(?:切至|切到|切换至|切换到)(?:镜头\d+|下一镜)|切镜|不切镜|"
-    r"声音桥(?:接)?(?:(?:至|到)(?:镜头\d+|下一镜))?|"
-    r"(?:动作|视线|构图)匹配切(?:(?:至|到)(?:镜头\d+|下一镜))?|"
-    r"遮挡转场(?:(?:至|到)(?:镜头\d+|下一镜))?|"
+    r"硬切(?:(?:至|到)(?:(?:新增)?镜头\d+|下一镜)|转场)?|"
+    r"反打(?:镜头|切|(?:切)?(?:至|到)(?:(?:新增)?镜头\d+|下一镜))?|"
+    r"(?:切至|切到|切换至|切换到)(?:(?:新增)?镜头\d+|下一镜)|切镜|不切镜|"
+    r"声音桥(?:接)?(?:(?:至|到)(?:(?:新增)?镜头\d+|下一镜))?|"
+    r"(?:动作|视线|构图)匹配切(?:(?:至|到)(?:(?:新增)?镜头\d+|下一镜))?|"
+    r"遮挡转场(?:(?:至|到)(?:(?:新增)?镜头\d+|下一镜))?|"
     r"淡入|淡出|叠化|(?:交叉)?溶解|(?:无缝)?转场|跳切|闪切|黑场|白场|切)[。.]?$"
 )
 
@@ -153,6 +181,7 @@ class ValidationResult:
 
 @dataclass(frozen=True)
 class ShotSpan:
+    prefix: str
     number: int
     start: Decimal
     end: Decimal
@@ -213,6 +242,62 @@ def strict_int(
     return parsed
 
 
+def uses_new_contract(contract: dict[str, Any]) -> bool:
+    return any(key in contract for key in NEW_CONTRACT_KEYS)
+
+
+def resolve_task_kind(
+    prompt: str,
+    contract: dict[str, Any] | None,
+    result: ValidationResult,
+) -> str:
+    inferred = "extension" if EXTENSION_HEADING_RE.search(prompt) else "generation"
+    if not contract or "task_kind" not in contract:
+        return inferred
+
+    task_kind = contract.get("task_kind")
+    if not isinstance(task_kind, str) or task_kind not in TASK_KINDS:
+        result.errors.append("task_kind 必须是 generation 或 extension")
+        return inferred
+    return task_kind
+
+
+def validate_tail(
+    prompt: str,
+    *,
+    task_kind: str,
+    contract: dict[str, Any] | None,
+    result: ValidationResult,
+) -> None:
+    default_policy = (
+        "generation_default" if task_kind == "generation" else "inherit_source"
+    )
+    tail_policy = default_policy
+    expected_tail: str | None = None
+
+    if contract and "tail_policy" in contract:
+        raw_policy = contract.get("tail_policy")
+        if not isinstance(raw_policy, str) or raw_policy not in TAIL_POLICIES:
+            result.errors.append(
+                "tail_policy 必须是 generation_default 或 inherit_source"
+            )
+        else:
+            tail_policy = raw_policy
+
+    if contract and "expected_tail" in contract:
+        raw_tail = contract.get("expected_tail")
+        if not isinstance(raw_tail, str) or not raw_tail.strip():
+            result.errors.append("expected_tail 必须是非空字符串")
+        else:
+            expected_tail = raw_tail
+
+    if expected_tail is not None:
+        if not prompt.endswith(expected_tail):
+            result.errors.append(f"提示词必须以合同指定收尾 {expected_tail!r} 结束")
+    elif tail_policy == "generation_default" and not prompt.endswith(FIXED_TAIL):
+        result.errors.append("提示词必须以“不添加字幕，不添加背景音乐。”收尾")
+
+
 def extract_code_blocks(response: str) -> tuple[list[str], str, list[str]]:
     """Parse only standalone ```/```text/```plaintext fenced blocks."""
     blocks: list[str] = []
@@ -260,9 +345,7 @@ def extract_code_blocks(response: str) -> tuple[list[str], str, list[str]]:
 
 
 def is_batch_contract(contract: dict[str, Any] | None) -> bool:
-    return bool(contract) and (
-        "expected_blocks" in contract or "segments" in contract
-    )
+    return bool(contract) and "segments" in contract
 
 
 def contract_duration(
@@ -283,6 +366,7 @@ def contract_duration(
 def find_shots(
     prompt: str,
     *,
+    task_kind: str,
     plot_start: int | None,
     plot_end: int | None,
     result: ValidationResult,
@@ -301,17 +385,25 @@ def find_shots(
 
     inside: list[re.Match[str]] = []
     for match in valid_matches:
+        prefix = match.group("prefix") or ""
+        label = f"{prefix}镜头{match.group('number')}"
         if match.start() < plot_start or match.start() >= plot_end:
-            result.errors.append(
-                f"镜头{match.group(1)}时间轴不在情节栏目内"
-            )
+            result.errors.append(f"{label}时间轴不在情节栏目内")
         else:
             inside.append(match)
 
     shots: list[ShotSpan] = []
     for index, match in enumerate(inside):
         text_end = inside[index + 1].start() if index + 1 < len(inside) else plot_end
-        number_text = match.group(1)
+        prefix = match.group("prefix") or ""
+        number_text = match.group("number")
+        label = f"{prefix}镜头{number_text}"
+        expected_prefix = "新增" if task_kind == "extension" else ""
+        if prefix != expected_prefix:
+            expected_label = "新增镜头N" if task_kind == "extension" else "镜头N"
+            result.errors.append(
+                f"{label}与 task_kind={task_kind} 不符；应使用 {expected_label}"
+            )
         if len(number_text) > 9:
             result.errors.append(f"镜头编号过长：{len(number_text)}位数字")
             number = -1
@@ -331,12 +423,13 @@ def find_shots(
             and re.search(r"[A-Za-z0-9_\u3400-\u9fff]", line)
         ]
         if not meaningful_lines:
-            result.errors.append(f"镜头{match.group(1)}正文为空")
+            result.errors.append(f"{label}正文为空")
         shots.append(
             ShotSpan(
+                prefix=prefix,
                 number=number,
-                start=decimal(match.group(2)),
-                end=decimal(match.group(3)),
+                start=decimal(match.group("start")),
+                end=decimal(match.group("end")),
                 text_start=match.start(),
                 text_end=text_end,
                 text=prompt[match.start():text_end],
@@ -413,12 +506,33 @@ def validate_contract(
     prompt: str,
     contract: dict[str, Any],
     *,
+    task_kind: str,
+    headings: list[str],
     assets: list[str],
     asset_occurrences: list[AssetOccurrence],
     shots: list[ShotSpan],
     has_subject: bool,
 ) -> ValidationResult:
     result = ValidationResult()
+    new_contract = uses_new_contract(contract)
+
+    if "expected_headings" in contract:
+        expected_headings = contract.get("expected_headings")
+        allowed_headings = set(HEADING_ORDER[task_kind])
+        if not isinstance(expected_headings, list) or not all(
+            isinstance(item, str) for item in expected_headings
+        ):
+            result.errors.append("expected_headings 必须是字符串数组")
+        elif len(expected_headings) != len(set(expected_headings)):
+            result.errors.append("expected_headings 不得包含重复栏目")
+        elif any(item not in allowed_headings for item in expected_headings):
+            result.errors.append(
+                f"expected_headings 含有 task_kind={task_kind} 不允许的栏目"
+            )
+        elif expected_headings != headings:
+            result.errors.append(
+                f"栏目不符：期望 {expected_headings}，实际 {headings}"
+            )
 
     has_expected_assets = "expected_assets" in contract
     has_expected_asset_sections = "expected_asset_sections" in contract
@@ -447,7 +561,7 @@ def validate_contract(
 
     expected_asset_sections = contract.get("expected_asset_sections")
     if has_expected_asset_sections:
-        valid_sections = {"主体", "场景", "风格", "情节"}
+        valid_sections = set(HEADING_ORDER[task_kind])
         if not isinstance(expected_asset_sections, dict):
             result.errors.append("expected_asset_sections 必须是标签到栏目的映射")
         else:
@@ -480,9 +594,13 @@ def validate_contract(
                     or expected_section not in valid_sections
                 ):
                     result.errors.append(
-                        "expected_asset_sections 每项必须是素材标签到主体/场景/风格/情节的映射"
+                        "expected_asset_sections 每项必须是素材标签到当前任务合法栏目的映射"
                     )
                     continue
+                if expected_section == "声音" and not label.startswith("音频"):
+                    result.errors.append("声音栏目只允许绑定音频素材")
+                if expected_section == "视频延长" and not label.startswith("视频"):
+                    result.errors.append("视频延长栏目只允许绑定源视频素材")
                 actual_sections = [
                     occurrence.section
                     for occurrence in asset_occurrences
@@ -505,9 +623,9 @@ def validate_contract(
                         f"素材栏目不符：{label} 期望位于{expected_section}，实际位于{actual}"
                     )
 
-    if "subject_required" not in contract:
+    if "subject_required" not in contract and not new_contract:
         result.errors.append("contract 必须包含布尔字段 subject_required")
-    else:
+    elif "subject_required" in contract:
         subject_required = contract.get("subject_required")
         if not isinstance(subject_required, bool):
             result.errors.append("subject_required 必须是布尔值")
@@ -518,7 +636,11 @@ def validate_contract(
                 result.errors.append("contract 声明无需主体标题，但提示词包含主体：")
             if not subject_required:
                 exact_dialogue_value = contract.get("exact_dialogue", [])
-                if isinstance(exact_dialogue_value, list) and exact_dialogue_value:
+                if (
+                    not new_contract
+                    and isinstance(exact_dialogue_value, list)
+                    and exact_dialogue_value
+                ):
                     result.errors.append(
                         "subject_required=false 与非空 exact_dialogue 矛盾"
                     )
@@ -595,7 +717,7 @@ def validate_contract(
                 dialogue_offset=position - owning_shot.text_start,
             ):
                 result.errors.append(
-                    f"对白说话人不符：镜头{owning_shot.number}中的 {text!r} "
+                    f"对白说话人不符：{owning_shot.prefix}镜头{owning_shot.number}中的 {text!r} "
                     f"没有由 {speaker!r} 通过发声谓词直接引出"
                 )
 
@@ -622,6 +744,8 @@ def validate_prompt(
         result.errors.append("批量合同只能用于 --response 校验")
         contract = None
 
+    task_kind = resolve_task_kind(prompt, contract, result)
+
     if "```" in prompt:
         result.errors.append("单条提示词正文不应包含Markdown围栏")
 
@@ -634,21 +758,27 @@ def validate_prompt(
     if headings and headings[0][1] != 0:
         result.errors.append("正文标题前不得有前言或说明文字")
 
-    required = {"场景", "风格", "情节"}
+    route_order = HEADING_ORDER[task_kind]
+    allowed = set(route_order)
+    required = REQUIRED_HEADINGS[task_kind]
     missing = sorted(required - set(names))
     if missing:
         result.errors.append(f"缺少必需标题：{', '.join(missing)}")
 
+    disallowed = [name for name in names if name not in allowed]
+    if disallowed:
+        result.errors.append(
+            f"task_kind={task_kind} 不允许栏目：{', '.join(disallowed)}"
+        )
+
     if len(names) != len(set(names)):
         result.errors.append("同一标题重复出现")
 
-    expected_order = [
-        name for name in ("主体", "场景", "风格", "情节") if name in names
-    ]
-    if names != expected_order:
+    expected_order = [name for name in route_order if name in names]
+    if not disallowed and names != expected_order:
         result.errors.append(f"标题顺序错误：实际 {names}，应为 {expected_order}")
 
-    canonical_headings = {"主体：", "场景：", "风格：", "情节："}
+    canonical_headings = {f"{name}：" for name in ALL_HEADINGS}
     for match in STANDALONE_HEADING_RE.finditer(prompt):
         line = match.group(0).strip()
         if (
@@ -670,8 +800,12 @@ def validate_prompt(
             plot_start = end
             plot_end = next_start
 
-    if not prompt.endswith(FIXED_TAIL):
-        result.errors.append("提示词必须以“不添加字幕，不添加背景音乐。”收尾")
+    validate_tail(
+        prompt,
+        task_kind=task_kind,
+        contract=contract,
+        result=result,
+    )
 
     for pattern, message in BANNED_PATTERNS:
         if pattern.search(prompt):
@@ -704,8 +838,39 @@ def validate_prompt(
     if duplicates:
         result.errors.append(f"素材标签重复出现：{', '.join(duplicates)}")
 
+    if "声音" in names:
+        sound_assets = [
+            occurrence
+            for occurrence in asset_occurrences
+            if occurrence.section == "声音"
+        ]
+        if not sound_assets:
+            result.errors.append("声音栏目必须绑定至少一个音频素材")
+        if any(not occurrence.label.startswith("音频") for occurrence in sound_assets):
+            result.errors.append("声音栏目只允许绑定音频素材")
+
+    if task_kind == "extension":
+        extension_assets = [
+            occurrence
+            for occurrence in asset_occurrences
+            if occurrence.section == "视频延长"
+        ]
+        if not any(
+            occurrence.label.startswith("视频") for occurrence in extension_assets
+        ):
+            result.errors.append("视频延长栏目必须绑定源视频素材")
+        if any(
+            not occurrence.label.startswith("视频")
+            for occurrence in extension_assets
+        ):
+            result.errors.append("视频延长栏目只允许绑定源视频素材")
+
     shots = find_shots(
-        prompt, plot_start=plot_start, plot_end=plot_end, result=result
+        prompt,
+        task_kind=task_kind,
+        plot_start=plot_start,
+        plot_end=plot_end,
+        result=result,
     )
 
     if not shots:
@@ -725,17 +890,18 @@ def validate_prompt(
 
         previous_end: Decimal | None = None
         for shot in shots:
+            label = f"{shot.prefix}镜头{shot.number}"
             if not on_half_second_grid(shot.start) or not on_half_second_grid(shot.end):
                 result.errors.append(
-                    f"镜头{shot.number}不在0.5秒网格：{shot.start}–{shot.end}"
+                    f"{label}不在0.5秒网格：{shot.start}–{shot.end}"
                 )
             if shot.end <= shot.start:
                 result.errors.append(
-                    f"镜头{shot.number}持续时间必须为正：{shot.start}–{shot.end}"
+                    f"{label}持续时间必须为正：{shot.start}–{shot.end}"
                 )
             if previous_end is not None and shot.start != previous_end:
                 result.errors.append(
-                    f"镜头{shot.number}与上一镜时间不连续：上一镜结束{previous_end}，"
+                    f"{label}与上一镜时间不连续：上一镜结束{previous_end}，"
                     f"本镜开始{shot.start}"
                 )
             previous_end = shot.end
@@ -764,6 +930,8 @@ def validate_prompt(
             validate_contract(
                 prompt,
                 contract,
+                task_kind=task_kind,
+                headings=names,
                 assets=assets,
                 asset_occurrences=asset_occurrences,
                 shots=shots,
@@ -798,6 +966,15 @@ def validate_response(
         assert contract is not None
         expected_blocks = contract.get("expected_blocks")
         segments = contract.get("segments")
+
+        if "delivery_mode" in contract:
+            raw_delivery_mode = contract.get("delivery_mode")
+            if raw_delivery_mode != "full_sequence":
+                result.errors.append("delivery_mode 只支持 full_sequence")
+            else:
+                result.errors.append(
+                    "delivery_mode=full_sequence 不能与旧批量 segments 同时使用"
+                )
 
         expected_blocks = strict_int(
             expected_blocks,
@@ -835,10 +1012,47 @@ def validate_response(
             result.merge(child, prefix=f"代码块{index}：")
         return result
 
-    if len(blocks) > 1 and contract:
-        result.errors.append(
-            "单段 contract 不能用于多代码块；请使用 expected_blocks + segments"
+    flat_expected_blocks: int | None = None
+    if contract is not None and "expected_blocks" in contract:
+        flat_expected_blocks = strict_int(
+            contract.get("expected_blocks"),
+            field_name="expected_blocks",
+            minimum=1,
+            result=result,
         )
+        if flat_expected_blocks is not None:
+            if flat_expected_blocks != 1:
+                result.errors.append(
+                    "非批量合同 expected_blocks 必须为1；多块请使用 segments"
+                )
+            if len(blocks) != flat_expected_blocks:
+                result.errors.append(
+                    f"代码块数量不符：期望 {flat_expected_blocks}，实际 {len(blocks)}"
+                )
+
+    if contract is not None and "delivery_mode" in contract:
+        raw_delivery_mode = contract.get("delivery_mode")
+        if not isinstance(raw_delivery_mode, str) or raw_delivery_mode != "full_sequence":
+            result.errors.append("delivery_mode 只支持 full_sequence")
+        else:
+            if "expected_blocks" not in contract:
+                result.errors.append(
+                    "delivery_mode=full_sequence 必须包含 expected_blocks=1"
+                )
+            if flat_expected_blocks is not None and flat_expected_blocks != 1:
+                result.errors.append("delivery_mode=full_sequence 只允许一个代码块")
+            if "expected_shot_count" not in contract:
+                result.errors.append(
+                    "delivery_mode=full_sequence 必须包含 expected_shot_count"
+                )
+
+    if len(blocks) > 1:
+        if contract:
+            result.errors.append(
+                "单段 contract 不能用于多代码块；显式旧批量请使用 expected_blocks + segments"
+            )
+        else:
+            result.errors.append("最终回复只能包含一个完整序列代码块")
     if len(blocks) > 1 and expected_duration is not None:
         result.errors.append(
             "多代码块不能使用单一 expected_duration；请使用批量逐段合同"
@@ -873,7 +1087,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--contract",
         type=Path,
-        help="Optional single-segment contract or batch expected_blocks + segments JSON",
+        help="Optional full-sequence contract or explicit legacy batch segments JSON",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     return parser

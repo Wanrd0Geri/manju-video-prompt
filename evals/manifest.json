@@ -1,0 +1,732 @@
+{
+  "schema_version": "1.1",
+  "suite_id": "manju-semantic-release-v3",
+  "purpose": "发布前验证提示词编译质量；以结构化 oracle 评估，不要求逐字匹配 gold 文本。",
+  "canonical_responses": "fixtures/clean-responses.md",
+  "evaluation_contract": {
+    "candidate_artifact": "compile/revise 的完整提示词代码块、纯 diagnose 的证据化诊断报告，或在物理/视点矛盾时给出明确阻断说明",
+    "source_resolution_rules": [
+      "用户本轮明确要求与已批准分镜控制新增事件、对白、时间和已锁定摄影选择",
+      "源视频真实可见可听尾段控制延长开始前已经存在的声画状态",
+      "角色、场景、道具和声音素材只控制各自被授权的维度",
+      "只有在现有证据与物理约束下结果唯一时才允许补全"
+    ],
+    "shared_pass_gate": [
+      "输出模式正确：可执行则完整交付，不可执行则阻断",
+      "oracle.must_preserve 全部成立",
+      "oracle.must_not_invent 无一发生",
+      "oracle.critical_failures 无一发生",
+      "全部 mutation 的单一缺陷都能按合同被识别",
+      "全部 validity_controls 保持 PASS，不误杀合法变体",
+      "expected_outcome=PROMPT 时，所有已批准镜头在同一个代码块中一次性交付",
+      "expected_outcome=PROMPT 时，每镜使用完整自然中文说明镜头看见什么、主体在哪里、动作怎样发生",
+      "expected_outcome=PROMPT 时，没有用空值句填满摄影字段"
+    ],
+    "oracle_fields": {
+      "must_preserve": "来源已锁定、遗漏或改写会改变成片的事实",
+      "must_not_invent": "来源没有授权且存在多种可能答案的事实",
+      "critical_failures": "无论总分如何都直接判失败的错误",
+      "allowed_variants": "在不改变来源事实时允许评审放行的表达或拍法差异"
+    }
+  },
+  "cases": [
+    {
+      "id": "C01_asset_dense_generation",
+      "title": "资产密集的普通多镜头",
+      "operation": "compile",
+      "task_kind": "generation",
+      "input": {
+        "platform": "Seedance 2.5",
+        "assets": {
+          "图片1": "方澄：身份、脸、短发、深灰色湿风衣",
+          "图片2": "江渡：身份、脸、黑衬衫",
+          "图片3": "雨夜面馆：吧台、玻璃门、座位与灯具空间关系",
+          "图片4": "封口牛皮纸信封：尺寸、材质与封口外形",
+          "音频1": "只参考方澄的音色"
+        },
+        "global_facts": [
+          "窗外冷蓝雨夜，室内暖色顶灯，雨声持续",
+          "成片无字幕、无背景音乐"
+        ],
+        "approved_sequence": [
+          "镜头1 0.0-1.5秒：门内斜向中远景；方澄推开门，江渡在吧台右端",
+          "镜头2 1.5-3.5秒：侧面双人中近景；信封和放下动作是主要清晰对象，方澄嘴部可见，把信封放到江渡面前并逐字说‘东西在这儿。’，口型同步",
+          "镜头3 3.5-5.0秒：江渡正面近景；信封下沿在前景，他先看信封，再用两指压住它并看向画外方澄",
+          "镜头4 5.0-6.5秒：门内中景；方澄转身离开，江渡留在原位，信封仍被他的手指压住"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "四个镜头、顺序和时间边界",
+          "图片1至图片4与音频1各自职责，不串绑",
+          "对白原句、方澄说话人、仅一次出现和可见口型同步",
+          "信封从方澄持有到桌面，再被江渡压住的状态连续",
+          "镜头3的前景信封与画外方澄关系",
+          "冷外暖内的稳定场景光和持续雨声可建立一次并继承"
+        ],
+        "must_not_invent": [
+          "未提供的人物微表情、额外对白、内心动机或对白字数点评",
+          "未批准的推拉摇移、慢动作、浅景深或拉焦",
+          "未提供的门铃、衣料摩擦或信封落桌声",
+          "用‘前景无主体’‘无遮挡’‘本镜无对白’之类空值句补字段"
+        ],
+        "critical_failures": [
+          "角色或素材身份串位",
+          "信封在镜头间无因改变持有人或位置",
+          "漏镜、分镜分批交付或改写对白"
+        ],
+        "allowed_variants": [
+          "主体、场景、风格和声音栏目可按实际素材组织，但不得留空栏目",
+          "稳定雨声与整体灯光关系可在全局建立一次；逐镜只需自然交代当前主体的可见受光，不机械复述整套灯光",
+          "剪辑连接词可自然变化"
+        ]
+      }
+    },
+    {
+      "id": "C02_extension_tail_prop_audio",
+      "title": "视频延长：真实尾段、道具与声音承接",
+      "operation": "compile",
+      "task_kind": "extension",
+      "input": {
+        "platform": "Seedance 2.5",
+        "assets": {
+          "视频1": "待向后延长的源视频",
+          "图片1": "姜知意：脸、黑色长发、白色婚纱",
+          "图片2": "陆野：脸、黑色西装与蓝黑胸饰",
+          "图片3": "仪式大厅：长桌、白椅、席位与冷白顶光",
+          "图片4": "短刃匕首",
+          "音频1": "只参考陆野的音色"
+        },
+        "prior_text_conflict": "旧提示词称陆野已拔出匕首并握在手中",
+        "verified_video_tail": [
+          "尾段最后一个完整动作段落在姜知意斜侧固定中近景，白椅中的姜知意、她身后左侧的陆野和长桌周围四个席位都在画面内",
+          "姜知意仍坐在白椅中并弓身，匕首留在小腹，血迹已开始扩散",
+          "陆野在她身后左侧刚松开控制，双手可见且没有持刀",
+          "四名兽首男人仍在长桌周围原席位",
+          "冷白顶光、急促呼吸、心跳和环境低鸣仍在持续"
+        ],
+        "approved_sequence": [
+          "新增镜头1 0.0-2.5秒：不切镜承接；姜知意和仍留腹部的匕首是清晰主体，她捂住匕首周围的伤口；陆野退到她斜前方，后景四人依次起身作为次要动作",
+          "新增镜头2 2.5-5.0秒：婚纱腹部特写；匕首仍留在小腹，血迹继续扩散",
+          "新增镜头3 5.0-8.0秒：姜知意近景；她的嘴部可见，看向逼近者并说‘为什么？你们为什么要这么做！’，口型同步",
+          "新增镜头4 8.0-11.5秒：陆野与姜知意斜侧中近景；陆野嘴部可见，用音频1音色说‘伤害了别人还妄想得到幸福？你必须死。’，口型同步"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "以真实视频尾段覆盖冲突的旧提示词",
+          "视频延长栏目同时包含视频1绑定、一句前情和最小必要接缝",
+          "匕首始终留在姜知意小腹，陆野不持刀",
+          "新增镜头1以第一个新变化为主，允许保留匕首、伤势或位置的最小必要锚点",
+          "四个新增镜头以‘新增镜头1’至‘新增镜头4’一次性交付",
+          "两个说话人、对白原句、可见口型同步和音频1只绑定陆野",
+          "真实尾段中的持续声音只在需要时延续，不凭空重置"
+        ],
+        "must_not_invent": [
+          "根据旧提示词让陆野重新持刀或把匕首拔出",
+          "新增未授权的声音素材、台词、攻击动作或人物站位",
+          "把未指定的‘捂住’具体化为双手、指定左右手或新的接触方式",
+          "把稳定冷白顶光与整组持续声音塞入接缝，而不是在首个相关新增镜头中自然继承",
+          "把同一当前状态同时写进一句前情和接缝",
+          "把整段尾帧人物、光线、声音状态复制进新增镜头1",
+          "另设‘新增终点’栏目或为最后一镜机械补终态"
+        ],
+        "critical_failures": [
+          "不按延长格式输出",
+          "道具状态与真实尾段冲突",
+          "声音素材错绑或对白说话人错误",
+          "重演已经完成的刺入动作"
+        ],
+        "allowed_variants": [
+          "一句前情可以概括刺伤或大厅对峙，但不得替代接缝状态",
+          "接缝与新增镜头1可共享为第一个新动作成立所必需的最小人物、道具和位置依赖簇",
+          "持续心跳、呼吸和低鸣可在新增镜头1建立一次，之后继承到发生变化的位置"
+        ]
+      }
+    },
+    {
+      "id": "C03_legal_group_reverse",
+      "title": "合法的多人背面反打",
+      "operation": "compile",
+      "task_kind": "generation",
+      "input": {
+        "platform": "Seedance 2.5",
+        "world_layout": [
+          "姜知意与陆野并肩站在石廊入口",
+          "四名兽首男人在两人正前方四米处形成弧形包围",
+          "摄影机位于姜知意与陆野身后，不是任何角色的严格第一人称",
+          "石廊冷白顶光稳定，六人保持无对白的静止对峙"
+        ],
+        "approved_sequence": [
+          "镜头1 0.0-3.0秒：背面中景；姜知意背影占左前景，陆野肩背占右前景，四名兽首男人在中后景完整可见",
+          "镜头2 3.0-5.0秒：从四人方向反打；姜知意与陆野正面入画，最近一名兽首男人肩部在左前景虚化遮挡"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "镜头1是第三人称背面反打而非严格主观视角",
+          "姜知意左前景背影、陆野右前景肩背和四名男人中后景的层次关系",
+          "镜头2反打后世界位置不变，只改变屏幕投影与可见面",
+          "局部入画、完整入画和虚化遮挡的差异"
+        ],
+        "must_not_invent": [
+          "把镜头1称为姜知意第一人称",
+          "为实现构图移动人物世界位置",
+          "新增第五名兽首男人、镜子或反射面",
+          "未提供的动作、对白或攻击结果"
+        ],
+        "critical_failures": [
+          "错误阻断本来可执行的背面反打",
+          "镜头1看不到四名兽首男人或让姜知意正脸入画",
+          "反打导致人物身份或左右关系无因互换",
+          "反打导致人物世界距离或位置无因改变"
+        ],
+        "allowed_variants": [
+          "可称背面双人构图、二人背面反打或第三人称越肩式构图",
+          "四人弧线在画面中的疏密可调整，但世界相对位置不可改变"
+        ]
+      }
+    },
+    {
+      "id": "C04_impossible_strict_pov",
+      "title": "非法严格 POV 必须阻断",
+      "operation": "compile",
+      "task_kind": "generation",
+      "scenario_kind": "geometry_conflict",
+      "input": {
+        "platform": "Seedance 2.5",
+        "world_layout": [
+          "姜知意与陆野并肩面向前方三名兽首男人",
+          "第四名牛首男人位于姜知意身后左侧",
+          "现场没有镜子、玻璃反射、水面倒影或监视器"
+        ],
+        "approved_sequence": [
+          "镜头1 0.0-4.0秒：严格采用姜知意第一人称直视前方三人，同时要求姜知意自己的后脑和上半身背影占左前景；机位不得改为第三人称"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "BLOCK",
+        "must_preserve": [
+          "指出视点承载者不能在无反射条件下看见自己的后脑和背影",
+          "说明矛盾发生在严格第一人称与本人背影入画之间",
+          "给出至少两个不擅自替用户决定的可行方向：保留严格 POV 并移除本人背影，或改为第三人称背面反打/越肩"
+        ],
+        "must_not_invent": [
+          "镜子、倒影、分身、无人机或超自然视角",
+          "默默把严格 POV 改成第三人称后直接交付",
+          "为了绕过矛盾删掉其他已锁定人物"
+        ],
+        "critical_failures": [
+          "交付一个声称同时满足两项矛盾要求的提示词",
+          "只说‘有歧义’却不定位具体几何冲突",
+          "替用户选定会改变拍法的解决方案"
+        ],
+        "allowed_variants": [
+          "阻断说明可以是短段落或紧凑列表",
+          "可补充第三个方案，但不能凭空改变世界设定"
+        ]
+      }
+    },
+    {
+      "id": "C05_sparse_but_executable",
+      "title": "信息稀疏但不得虚构或过度省略",
+      "operation": "compile",
+      "task_kind": "generation",
+      "input": {
+        "platform": "Seedance 2.5",
+        "assets": {
+          "图片1": "沈清霜：身份、脸、白色衣裙",
+          "图片2": "雨夜石桥：桥面、栏杆与河流方向"
+        },
+        "global_facts": [
+          "冷灰雨夜环境光；细雨持续",
+          "没有提供声音素材、景深方案、运镜方案或表演细节"
+        ],
+        "approved_sequence": [
+          "镜头1 0.0-2.0秒：桥侧中景固定机位；沈清霜在画面左侧看向河面",
+          "镜头2 2.0-3.5秒：摄影机位于她正前方并与视线齐平的近景；她抬眼看向画外右侧",
+          "镜头3 3.5-5.0秒：摄影机固定在桥面近端、沿桥身纵深观察的远景；她转身背向摄影机，沿桥向远处走去"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "三个镜头、时间、景别、已给机位、画面位置、视线和动作",
+          "每镜至少形成完整观察关系、构图与动作句，而非参数碎片",
+          "冷灰雨夜和细雨作为稳定条件继承",
+          "镜头1明确摄影机保持在桥侧原位"
+        ],
+        "must_not_invent": [
+          "镜头2或镜头3的推拉摇移、低机位或俯拍",
+          "浅景深、前景虚焦、拉焦、轮廓光或光线变化",
+          "呼吸、脚步、衣料声、对白、微表情或心理解释",
+          "用‘无前景’‘无遮挡’‘无明显虚焦’填补缺省字段",
+          "把镜头压缩成只有‘近景，她抬眼’之类不完整短句"
+        ],
+        "critical_failures": [
+          "因非关键细节缺失而错误阻断",
+          "漏掉批准镜头或改变动作",
+          "通过虚构摄影与声音细节制造表面完整"
+        ],
+        "allowed_variants": [
+          "来源没有锁定的屏幕细微位置可用不改变关系的自然语言表达",
+          "稳定雨夜光不逐镜机械复述原句；每镜可用简短自然的可见受光结果完成摄影闭包，但不能新增灯位、光质或光线变化",
+          "可用中性的‘切到’或自然分段衔接；来源未指定时不新增硬切、叠化或其他转场"
+        ]
+      }
+    },
+    {
+      "id": "C06_full_seven_shot_continuity",
+      "title": "七镜完整连续序列",
+      "operation": "compile",
+      "task_kind": "generation",
+      "input": {
+        "platform": "Seedance 2.5",
+        "assets": {
+          "图片1": "苏晚角色图",
+          "图片2": "顾沉角色图",
+          "图片3": "旧剧院后台场景图",
+          "图片4": "银色怀表道具图",
+          "音频1": "只参考苏晚音色",
+          "音频2": "只参考顾沉音色"
+        },
+        "global_facts": [
+          "后台仅有舞台侧漏入的暖光与走廊冷光",
+          "舞台侧暖光位于空间左前方，走廊门与冷光位于右后方；苏晚开场从左侧进入，顾沉开场在右后方门边",
+          "怀表开场在苏晚右手，镜头4转交顾沉，之后由顾沉持有"
+        ],
+        "approved_sequence": [
+          "镜头1 0.0-1.5秒：摄影机在后台中央观察的全景，苏晚从左侧入画，顾沉在右后方门边",
+          "镜头2 1.5-3.0秒：摄影机贴近苏晚右手的怀表特写，她按开表盖",
+          "镜头3 3.0-5.0秒：摄影机在苏晚正前方的近景，她的嘴部可见，用音频1说‘它一直停在那天。’，口型同步",
+          "镜头4 5.0-7.0秒：摄影机位于两人侧前方的双人中近景，苏晚把怀表递给顾沉，交接完成后松手",
+          "镜头5 7.0-9.0秒：摄影机在顾沉正前方的近景，怀表在他右手；他的嘴部可见，用音频2说‘你终于肯承认了。’，口型同步",
+          "镜头6 9.0-11.0秒：摄影机位于两人侧面的双人中景，苏晚朝舞台侧暖光后退一步，顾沉留在门边并握住怀表",
+          "镜头7 11.0-13.0秒：摄影机在苏晚斜侧后方观察的中远景，苏晚背影走向左前方暖光，顾沉仍在右后景门边，怀表仍在他手中"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "七镜连续时间轴和全部镜头一次性交付",
+          "人物、场景、怀表与两个音频素材各自职责",
+          "两句对白逐字、各一次、说话人、可见口型和音色绑定正确",
+          "怀表的开盖、转交、苏晚松手和顾沉持续持有状态",
+          "镜头6后退一步延续到镜头7的空间关系",
+          "左前方暖光与右后方冷光的世界方向跨切镜固定",
+          "镜头7的前后景、人物朝向和暖冷光方向"
+        ],
+        "must_not_invent": [
+          "额外开关怀表、掉落、换手或回到苏晚手中",
+          "额外对白、旁白、表情解释或结局",
+          "把固定世界光位按屏幕方向翻转为新的灯位",
+          "每镜重复全局场景与光线，或机械补‘镜头结束时’",
+          "拆成七次回复、七个代码块或只给部分镜头"
+        ],
+        "critical_failures": [
+          "漏镜、乱序、时间断裂或分批交付",
+          "怀表状态断裂",
+          "对白、人物或声音素材错绑",
+          "斜侧后方观察造成无因换位或人物朝向不可能"
+        ],
+        "allowed_variants": [
+          "只在状态改变处写怀表交接，稳定持有状态无需每镜重复",
+          "全局灯光关系可独立成栏，也可与场景合并；镜头正文只写当前可见受光，不机械重复整套说明",
+          "最后一镜可自然落在既定画面，不必另写终态栏目"
+        ]
+      }
+    },
+    {
+      "id": "C07_diagnose_first_divergence",
+      "title": "纯诊断：定位首个多人机位冲突",
+      "operation": "diagnose",
+      "task_kind": "generation",
+      "input": {
+        "diagnostic_basis": "observed_failure",
+        "platform": "Seedance 2.5",
+        "request": "只诊断失败原因，不修改提示词",
+        "world_facts": [
+          "现场没有镜面、玻璃反射、水面倒影或监视器"
+        ],
+        "approved_intent": [
+          "镜头1：姜知意与陆野并肩站在石廊入口，四名兽首男人在两人前方形成弧形包围",
+          "镜头2：要看见姜知意与陆野的背影作前景，同时看见前方四名兽首男人的正面"
+        ],
+        "latest_prompt": [
+          "镜头1：独立观察机位的侧面中远景，六人保持对峙",
+          "镜头2：严格采用姜知意第一人称拍摄四人；姜知意和陆野背对镜头占据前景，四名兽首男人正面位于中后景"
+        ],
+        "observed_result": [
+          "镜头1人物和站位基本正确",
+          "镜头2中六人都被模型整理成了普通正面群像，原定背面前景与包围层次消失"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "REPORT",
+        "must_preserve": [
+          "明确首个偏离点是镜头2而不是镜头1",
+          "指出‘姜知意视角’与‘姜知意自己的背影入画’在无反射条件下互相冲突",
+          "解释模型转成普通正面群像是提示词几何冲突造成的可预见满足方式",
+          "给出保留严格 POV 或改成第三人称背面反打的可选下一步"
+        ],
+        "must_not_invent": [
+          "把问题归因于角色图、场景图或随机偏差",
+          "直接输出或回传提示词代码块",
+          "擅自替用户选定其中一种拍法"
+        ],
+        "critical_failures": [
+          "没有定位镜头2的具体视点矛盾",
+          "在纯诊断请求中以提示词代码块代替诊断报告",
+          "误判镜头1为首个偏离点"
+        ],
+        "allowed_variants": [
+          "可用短段落或紧凑列表报告",
+          "可把问题称为 POV、自身可见性或摄影机承载者冲突"
+        ]
+      }
+    },
+    {
+      "id": "C08_revise_full_sequence",
+      "title": "完整修订：只释放故障机位并回传全序列",
+      "operation": "revise",
+      "task_kind": "generation",
+      "input": {
+        "platform": "Seedance 2.5",
+        "request": "修复镜头2的机位冲突，并一次性返回完整三个镜头",
+        "global_facts": [
+          "石廊冷白顶光稳定，姜知意与陆野并肩站在入口，四名兽首男人在两人正前方四米处形成弧线",
+          "三镜都没有对白或攻击动作，人物世界位置不变"
+        ],
+        "latest_complete_sequence": [
+          "镜头1 0.0-2.0秒：摄影机固定在石廊侧面的中远景，姜知意在左、陆野在右，前方四人形成弧线；冷白顶光下六人清晰可辨，焦点覆盖两组人物，众人静止对峙",
+          "镜头2 2.0-5.0秒：从姜知意视角拍摄四人；姜知意背影占左前景，陆野肩背占右前景，四人在中后景完整可见；冷白顶光下四人最清晰，众人继续静止",
+          "镜头3 5.0-7.0秒：摄影机固定在四人所在方向反打，最近一名兽首男人的肩部虚化在左前景，姜知意与陆野正面位于中景；冷白顶光下两人最清晰，众人继续静止"
+        ],
+        "observed_failure": "镜头2生成成六人正面群像，姜知意与陆野的背面前景消失",
+        "approved_fix": "镜头2改为摄影机位于姜知意与陆野身后的独立第三人称观察机位；两人背影仍作左右前景，四名兽首男人保持中后景正面完整可见"
+      },
+      "oracle": {
+        "expected_outcome": "PROMPT",
+        "must_preserve": [
+          "三个镜头、原时间、镜头1和镜头3的内容完整保留并一次性交付",
+          "镜头2使用独立第三人称背面观察机位，不再称为姜知意视角",
+          "两人前景背影、四人中后景正面和四米弧形关系成立",
+          "三镜冷白顶光、各镜原有焦点对象与静止对峙分别保持"
+        ],
+        "must_not_invent": [
+          "新增镜头、对白、攻击、人物移动或新的灯光",
+          "只返回镜头2替换句或让用户自行拼接",
+          "改写镜头1、镜头3的镜头功能或世界位置"
+        ],
+        "critical_failures": [
+          "修订后仍把镜头2写成严格 POV",
+          "未完整返回三个镜头",
+          "修复机位时改变人物世界站位或删人"
+        ],
+        "allowed_variants": [
+          "镜头2可称第三人称背面反打、背面双人构图或独立观察机位",
+          "可自然润色整段中文，但不能释放未受影响的摄影与事件字段"
+        ]
+      }
+    },
+    {
+      "id": "C09_prompt_preflight",
+      "title": "生成前提示词预检：只报告可确认文本风险",
+      "operation": "diagnose",
+      "task_kind": "generation",
+      "input": {
+        "diagnostic_basis": "prompt_preflight",
+        "platform": "Seedance 2.5",
+        "request": "只审查下面提示词，不改写；目前还没有生成成片",
+        "source_facts": [
+          "批准镜头为石桥侧面固定中景，沈清霜站在画面左侧抬眼看向画外右侧",
+          "冷灰雨夜环境光和细雨已锁定",
+          "没有批准运镜、景深方案、表演细节或声音事件"
+        ],
+        "latest_prompt": [
+          "镜头1（0.0-2.0秒）：中景，摄影机从桥侧缓慢推近，浅景深从雨丝拉焦到沈清霜双眼；她先垂眼并深呼吸，随后抬眼看向画外右侧。前景无主体，无遮挡。脚步声持续。"
+        ]
+      },
+      "oracle": {
+        "expected_outcome": "REPORT",
+        "must_preserve": [
+          "明确这是 prompt_preflight，没有实际成片可供归因",
+          "首个可确认问题是固定机位与新增缓慢推近冲突",
+          "继续指出浅景深与拉焦、垂眼深呼吸、脚步声及空值句都没有来源依据",
+          "区分可确认的文本越界与尚未发生的模型结果",
+          "给出删除无依据内容或由用户明确授权这些选择的下一步"
+        ],
+        "must_not_invent": [
+          "声称模型已经生成推近失败、人物变脸或站位漂移",
+          "给出成功率、概率或平台必然行为",
+          "直接输出改写后的提示词代码块"
+        ],
+        "critical_failures": [
+          "因为没有失败视频而拒绝做 prompt_preflight",
+          "把预检风险写成已经观察到的成片根因",
+          "在只审查请求中直接改写提示词"
+        ],
+        "allowed_variants": [
+          "可按来源越界、摄影闭包和机械冗余分组报告",
+          "可把缓慢推近称为首个冲突或首个来源越界"
+        ]
+      }
+    }
+  ],
+  "mutations": [
+    {
+      "id": "M01_empty_foreground_filler",
+      "base_case": "C05_sparse_but_executable",
+      "single_defect": "在 C05 每个镜头正文末尾都追加独立句‘前景无主体。’，其他文字不变",
+      "expected_dimensions": ["G"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "economy_naturalness 降分并命中 C05 must_not_invent；判定为机械填字段",
+      "severity": "major"
+    },
+    {
+      "id": "M02_empty_occlusion_filler",
+      "base_case": "C01_asset_dense_generation",
+      "single_defect": "在 C01 每个镜头正文末尾都追加独立句‘无遮挡。’，其他文字不变",
+      "expected_dimensions": ["G"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "economy_naturalness 降分并命中 C01 must_not_invent；不得视为摄影信息更完整",
+      "severity": "major"
+    },
+    {
+      "id": "M03_unsupported_camera_move",
+      "base_case": "C05_sparse_but_executable",
+      "single_defect": "只在 C05 镜头2的摄影机位置句后插入‘摄影机同时缓慢向她推近。’，其他文字不变",
+      "expected_dimensions": ["A"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "source_fidelity 失败；命中 must_not_invent",
+      "severity": "critical"
+    },
+    {
+      "id": "M04_unsupported_focus_design",
+      "base_case": "C05_sparse_but_executable",
+      "single_defect": "只在 C05 镜头2动作前插入‘浅景深先把焦点落在雨丝上，再拉焦到她的双眼。’，其他文字不变",
+      "expected_dimensions": ["A", "D"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "source_fidelity 与 shot_executability 降分；命中 must_not_invent",
+      "severity": "critical"
+    },
+    {
+      "id": "M05_invented_foley",
+      "base_case": "C01_asset_dense_generation",
+      "single_defect": "只在 C01 镜头1方澄推门动作后插入‘门铃声随即响起。’，其他文字不变",
+      "expected_dimensions": ["A", "E"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "source_fidelity 与 asset_dialogue_sound 失败；命中 must_not_invent",
+      "severity": "critical"
+    },
+    {
+      "id": "M06_full_seam_repetition",
+      "base_case": "C02_extension_tail_prop_audio",
+      "single_defect": "只在 C02 新增镜头1的首句之后插入固定句‘姜知意仍坐在白椅中弓身，匕首留在小腹且血迹正在扩散；陆野空手站在她身后左侧；四名兽首男人仍坐原席；冷白顶光、急促呼吸、心跳和环境低鸣保持不变。’，其他文字不变",
+      "expected_dimensions": ["C", "G"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "continuity_extension 与 economy_naturalness 降分；区别于允许的最小锚点",
+      "severity": "major"
+    },
+    {
+      "id": "M07_required_anchor_deleted",
+      "base_case": "C02_extension_tail_prop_audio",
+      "single_defect": "只从 C02 视频延长栏删除‘匕首仍留在她小腹，’，并把新增镜头1的‘她弓身捂住匕首周围的伤口’替换为‘她弓身捂住伤口’，使匕首到新增镜头2才重新出现；其他文字不变",
+      "expected_dimensions": ["C"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "continuity_extension 失败；命中道具状态 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M08_asset_identity_swap",
+      "base_case": "C01_asset_dense_generation",
+      "single_defect": "互换图片1和图片2的人物身份绑定",
+      "expected_dimensions": ["A", "E"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "asset_dialogue_sound 失败；命中角色素材串位",
+      "severity": "critical"
+    },
+    {
+      "id": "M09_legal_reverse_mislabeled_pov",
+      "base_case": "C03_legal_group_reverse",
+      "single_defect": "把合法的第三人称背面反打写成姜知意严格第一人称，但保留她的背影入画",
+      "expected_dimensions": ["B"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "spatial_visibility 失败；产生不可实现视点",
+      "severity": "critical"
+    },
+    {
+      "id": "M10_impossible_pov_silent_repair",
+      "base_case": "C04_impossible_strict_pov",
+      "single_defect": "把 C04 的整份 BLOCK 唯一替换为固定代码块‘情节：镜头1（0.0-4.0秒）：摄影机位于姜知意肩后，以第三人称越肩中景看见她的背影、陆野肩背和前方三名兽首男人。’，不保留冲突说明或可选方向",
+      "expected_dimensions": ["B", "F"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "输出模式错误；命中 geometry block critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M11_partial_sequence_delivery",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "把 C06 代码块中的镜头2至镜头7全部删除，并在镜头1后追加‘其余镜头下一次再生成。’，其他栏目不变",
+      "expected_dimensions": ["F"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "delivery_completeness 失败；命中分批交付 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M12_unneeded_terminal_restatement",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "只在 C06 镜头7之后、代码块结尾前追加‘最终状态：\n苏晚已经走向左前方暖光；顾沉仍在右后景门边，打开的怀表仍握在他右手中。’",
+      "expected_dimensions": ["F", "G"],
+      "oracle_hooks": ["allowed_variants"],
+      "expected_detection": "delivery_completeness 与 economy_naturalness 降分；普通生成中构成额外格式且违背自然落镜的 allowed variant",
+      "severity": "major"
+    },
+    {
+      "id": "M13_diagnosis_rewrites_without_request",
+      "base_case": "C07_diagnose_first_divergence",
+      "single_defect": "把 C07 的整份 REPORT 唯一替换为一个代码块，代码块内原样放入输入中的两行 latest_prompt：‘镜头1：独立观察机位的侧面中远景，六人保持对峙’与‘镜头2：严格采用姜知意第一人称拍摄四人；姜知意和陆野背对镜头占据前景，四名兽首男人正面位于中后景’，不增删任何镜头文字",
+      "expected_dimensions": ["D", "F"],
+      "oracle_hooks": ["must_not_invent", "critical_failures"],
+      "expected_detection": "shot_executability、输出模式与 delivery_completeness 失败；命中纯诊断 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M14_revision_returns_partial_patch",
+      "base_case": "C08_revise_full_sequence",
+      "single_defect": "把 C08 代码块中的镜头1与镜头3删除，只保留镜头2，并在代码块后追加‘请自行与原镜头1和镜头3拼接。’",
+      "expected_dimensions": ["F"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "delivery_completeness 失败；命中完整修订 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M15_camera_closure_collapsed",
+      "base_case": "C05_sparse_but_executable",
+      "single_defect": "把镜头2压缩成‘近景，沈清霜抬眼看向画外右侧’，删去摄影机观察关系、主体位置、可见受光和焦点对象",
+      "expected_dimensions": ["A", "D", "G"],
+      "oracle_hooks": ["must_preserve", "must_not_invent"],
+      "expected_detection": "shot_executability 失败并缺失 C05 must_preserve；不得用动作梗概冒充自然简洁",
+      "severity": "critical"
+    },
+    {
+      "id": "M16_audio_identity_swap",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "互换音频1和音频2的角色音色绑定，其他内容保持不变",
+      "expected_dimensions": ["E"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "asset_dialogue_sound 失败；命中声音素材错绑 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M17_exact_dialogue_changed",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "把顾沉的原句‘你终于肯承认了。’改为‘你终于承认了。’，其他内容保持不变",
+      "expected_dimensions": ["E"],
+      "oracle_hooks": ["critical_failures"],
+      "expected_detection": "asset_dialogue_sound 失败；命中对白原句被改写 critical failure",
+      "severity": "critical"
+    },
+    {
+      "id": "M18_prop_handoff_broken",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "只把 C06 镜头6末句‘顾沉留在右后方门边，冷光下的右手继续握住打开的怀表。’替换为‘顾沉留在右后方门边，打开的怀表无过渡地出现在苏晚右手。’，其他文字不变",
+      "expected_dimensions": ["C", "E"],
+      "oracle_hooks": ["must_not_invent", "critical_failures"],
+      "expected_detection": "continuity_extension 与 asset_dialogue_sound 失败；命中怀表状态断裂",
+      "severity": "critical"
+    },
+    {
+      "id": "M19_world_position_rewritten_by_reverse",
+      "base_case": "C03_legal_group_reverse",
+      "single_defect": "只把 C03 镜头2的‘双方的四米间距和弧形站位没有改变’替换为‘四名兽首男人已经无过渡地贴到姜知意与陆野身前’，其他文字不变",
+      "expected_dimensions": ["B", "C"],
+      "oracle_hooks": ["must_preserve", "must_not_invent", "critical_failures"],
+      "expected_detection": "spatial_visibility 与 continuity_extension 失败；反打不得改写世界位置",
+      "severity": "critical"
+    },
+    {
+      "id": "M20_world_light_flipped_by_cut",
+      "base_case": "C06_full_seven_shot_continuity",
+      "single_defect": "只把 C06 镜头5的受光句‘右后方冷光照清他的脸，左前方暖光落在银色表壳上’替换为‘左后方冷光照清他的脸，右前方暖光落在银色表壳上’，人物位置、门、动作与其他文字不变",
+      "expected_dimensions": ["A", "B", "D"],
+      "oracle_hooks": ["must_preserve", "must_not_invent"],
+      "expected_detection": "source_fidelity、spatial_visibility 与 shot_executability 失败；固定世界光源不能随切镜翻转",
+      "severity": "critical"
+    },
+    {
+      "id": "M21_old_prompt_overrides_video_tail",
+      "base_case": "C02_extension_tail_prop_audio",
+      "single_defect": "只把 C02 视频延长栏接缝中的‘匕首仍留在她小腹，陆野空手位于她身后左侧’替换为‘匕首已经拔出，陆野持刀位于她身后左侧’，新增镜头与其他文字不变",
+      "expected_dimensions": ["A", "C"],
+      "oracle_hooks": ["must_not_invent", "critical_failures"],
+      "expected_detection": "source_fidelity 与 continuity_extension 失败；真实尾段优先且命中道具状态冲突",
+      "severity": "critical"
+    },
+    {
+      "id": "M22_diagnosis_wrong_attribution",
+      "base_case": "C07_diagnose_first_divergence",
+      "single_defect": "把 C07 的整份 REPORT 唯一替换为固定报告：‘首个偏离点是镜头2。根因是角色图清晰度不足，模型无法维持站位；影响范围是镜头2的人物层次。下一步请补一张更清晰的角色图后重试。’，不提 POV、自身背影或第三人称方案",
+      "expected_dimensions": ["A", "D", "F"],
+      "oracle_hooks": ["must_preserve", "must_not_invent", "critical_failures"],
+      "expected_detection": "source_fidelity 与 diagnose 的 shot_executability 失败；命中误归因和未定位首因",
+      "severity": "critical"
+    },
+    {
+      "id": "M23_recap_duplicates_seam_state",
+      "base_case": "C02_extension_tail_prop_audio",
+      "single_defect": "只在 C02 一句话前情的句末加入‘四名兽首男人仍坐在原席’，接缝原有的同一状态保持不变",
+      "expected_dimensions": ["C", "G"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "continuity_extension 与 economy_naturalness 降分；已完成事件与当前接缝的职责混淆",
+      "severity": "major"
+    },
+    {
+      "id": "M24_unsourced_contact_specificity",
+      "base_case": "C02_extension_tail_prop_audio",
+      "single_defect": "只把 C02 新增镜头1的‘她弓身捂住匕首周围的伤口’替换为‘她弓身用双手捂住匕首周围的伤口’，其他内容不变",
+      "expected_dimensions": ["A", "C"],
+      "oracle_hooks": ["must_not_invent"],
+      "expected_detection": "source_fidelity 与 continuity_extension 降分；未授权的手数和接触方式不能作为自然补全",
+      "severity": "major"
+    },
+    {
+      "id": "M25_preflight_claims_observed_failure",
+      "base_case": "C09_prompt_preflight",
+      "single_defect": "只在 C09 第一段之后插入独立句‘实际成片已经证明模型在镜头1把固定机位生成成了错误推近。’，其余预检报告不变",
+      "expected_dimensions": ["A", "D"],
+      "oracle_hooks": ["must_not_invent", "critical_failures"],
+      "expected_detection": "source_fidelity 与 prompt_preflight 的 shot_executability 失败；未提供成片时不得伪造已观察结果",
+      "severity": "critical"
+    }
+  ],
+  "validity_controls": [
+    {
+      "id": "V01_legal_reverse_reprojection",
+      "base_case": "C03_legal_group_reverse",
+      "valid_variant": "镜头2改变摄影机方向与屏幕左右投影，但明确双方四米世界距离和弧形站位不变",
+      "protected_dimensions": ["B", "C"],
+      "expected_outcome": "PASS",
+      "expected_acceptance": "必须放行；这是合法反打，不得因屏幕位置变化误判为人物换位"
+    },
+    {
+      "id": "V02_minimal_dependency_cluster_shared",
+      "base_case": "C02_extension_tail_prop_audio",
+      "valid_variant": "接缝写匕首仍留在姜知意小腹，新增镜头1为执行捂伤动作自然重提仍留腹部的匕首，但不复述整套尾帧",
+      "protected_dimensions": ["C", "G"],
+      "expected_outcome": "PASS",
+      "expected_acceptance": "必须放行；动作成立所需的最小依赖簇可以在接缝与新增镜头1共享"
+    },
+    {
+      "id": "V03_global_light_local_projection",
+      "base_case": "C06_full_seven_shot_continuity",
+      "valid_variant": "全局只建立一次左前方暖光与右后方冷光，逐镜改用当前人物和道具的可见受光结果，不逐字重复整套灯位",
+      "protected_dimensions": ["A", "D", "G"],
+      "expected_outcome": "PASS",
+      "expected_acceptance": "必须放行；自然省略稳定事实不能被误判为摄影闭包缺失"
+    }
+  ]
+}
