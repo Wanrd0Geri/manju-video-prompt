@@ -208,10 +208,6 @@ def decimal(value: str) -> Decimal:
     return parsed
 
 
-def on_half_second_grid(value: Decimal) -> bool:
-    return value >= 0 and (value * 2) == (value * 2).to_integral_value()
-
-
 def strict_int(
     value: Any,
     *,
@@ -891,10 +887,6 @@ def validate_prompt(
         previous_end: Decimal | None = None
         for shot in shots:
             label = f"{shot.prefix}镜头{shot.number}"
-            if not on_half_second_grid(shot.start) or not on_half_second_grid(shot.end):
-                result.errors.append(
-                    f"{label}不在0.5秒网格：{shot.start}–{shot.end}"
-                )
             if shot.end <= shot.start:
                 result.errors.append(
                     f"{label}持续时间必须为正：{shot.start}–{shot.end}"

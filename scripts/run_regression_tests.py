@@ -459,6 +459,17 @@ def main() -> int:
             ).ok,
         )
 
+    # Exact user timing may use decimal cut points while retaining continuity.
+    precise = MULTI.replace("0.0–1.5秒", "0.0–1.7秒").replace(
+        "1.5–3.5秒", "1.7–3.5秒"
+    )
+    add("preserve_precise_continuous_timing", validate_prompt(precise).ok)
+    add_error(
+        "precise_timing_still_checks_total",
+        validate_prompt(precise, expected_duration=Decimal("5.2")),
+        "总时长不符",
+    )
+
     mutations: list[tuple[str, str, dict[str, object] | None]] = [
         (
             "missing_tail",
@@ -476,7 +487,7 @@ def main() -> int:
             None,
         ),
         (
-            "off_grid",
+            "non_grid_time_gap",
             MULTI.replace("镜头2（1.5–3.5秒）", "镜头2（1.7–3.5秒）"),
             None,
         ),
